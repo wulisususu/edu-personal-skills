@@ -1,0 +1,34 @@
+name: P1 bootstrap catalog migration
+
+on:
+  push:
+    branches:
+      - feat/p1-catalog-pipeline
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/p1-catalog-pipeline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Migrate bootstrap catalog to v2
+        run: python skills/dingyi-edu-radar/scripts/migrate_catalog_v2.py
+      - name: Commit migrated catalog if changed
+        run: |
+          if git diff --quiet -- skills/dingyi-edu-radar/catalog.json skills/dingyi-edu-radar/active_snapshot.json; then
+            echo "Bootstrap catalog already migrated."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add skills/dingyi-edu-radar/catalog.json skills/dingyi-edu-radar/active_snapshot.json
+          git commit -m "data: migrate bootstrap catalog to v2"
+          git push origin HEAD:feat/p1-catalog-pipeline
