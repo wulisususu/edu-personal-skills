@@ -20,6 +20,7 @@ from snapshot_validate import SnapshotValidationError, validate_snapshot
 SNAPSHOT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 ACTIVE_POINTER = "active_snapshot.json"
 SNAPSHOTS_DIR = ".snapshots"
+REFERENCE_NOTICE_NAMES = {"readme.md"}
 
 
 def _load_json(path: Path) -> object:
@@ -35,9 +36,23 @@ def _safe_relative_dir(value: object) -> PurePosixPath | None:
     return path
 
 
+def _count_reference_markdown(refs: Path) -> int:
+    if not refs.is_dir() or refs.is_symlink():
+        return 0
+    return len(
+        [
+            path
+            for path in refs.glob("*.md")
+            if path.is_file()
+            and not path.is_symlink()
+            and path.name.casefold() not in REFERENCE_NOTICE_NAMES
+        ]
+    )
+
+
 def _count_root_bootstrap(skill_dir: Path) -> int:
     refs = skill_dir / "references"
-    refs_count = len([p for p in refs.glob("*.md") if p.is_file()]) if refs.is_dir() else 0
+    refs_count = _count_reference_markdown(refs)
     catalog_count = 0
     try:
         catalog = _load_json(skill_dir / "catalog.json")
@@ -74,7 +89,7 @@ def _count_active_snapshot(skill_dir: Path) -> int:
         return _count_root_bootstrap(skill_dir)
     if not refs.is_dir() or refs.is_symlink():
         return _count_root_bootstrap(skill_dir)
-    return len([p for p in refs.glob("*.md") if p.is_file() and not p.is_symlink()])
+    return _count_reference_markdown(refs)
 
 
 def _atomic_write_json(path: Path, payload: dict) -> None:
