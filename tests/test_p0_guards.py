@@ -25,6 +25,15 @@ class PromptInjectionBoundaryTests(unittest.TestCase):
         self.assertIn("UNTRUSTED_EXTERNAL_DATA", text)
 
 
+class SafeRefreshWiringTests(unittest.TestCase):
+    def test_refresh_builds_staging_snapshot_and_uses_safe_publisher(self):
+        text = (SKILL_DIR / "scripts" / "refresh.sh").read_text(encoding="utf-8")
+        self.assertIn(".refresh-stage.", text)
+        self.assertIn("safe_publish.py", text)
+        self.assertNotIn('rm -rf "$LIVE_REF_DIR"', text)
+        self.assertNotIn('rm -rf "$REF_DIR"', text)
+
+
 class SafePublishTests(unittest.TestCase):
     def _write_snapshot(self, root: Path, names):
         refs = root / "references"
