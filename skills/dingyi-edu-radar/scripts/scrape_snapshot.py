@@ -110,9 +110,13 @@ def _crawl_category(base_url: str, category: str, *, timeout: float, max_pages: 
                 raise RuntimeError(f"category {category} homepage is unexpectedly small")
             break
         page_urls = _extract_article_urls(text, base_url)
-        collected.update(page_urls)
-        # A valid last page may contain little useful content but still be >1 KB.
-        # WordPress normally returns 404 on the next page; max_pages is the hard loop cap.
+        new_urls = page_urls - collected
+        # Some WordPress/WAF configurations return the last valid listing page for
+        # out-of-range page numbers instead of a 404. Once a later page contributes
+        # no new article URL, pagination is complete and must terminate cleanly.
+        if page_number > 1 and not new_urls:
+            break
+        collected.update(new_urls)
     else:
         raise RuntimeError(f"category {category} exceeded max_pages={max_pages}")
 
