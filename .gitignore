@@ -6,6 +6,9 @@ skills/dingyi-edu-radar/.snapshots/
 skills/dingyi-edu-radar/.refresh-stage.*/
 skills/dingyi-edu-radar/.active_snapshot.json.tmp.*
 
+# Derived SQLite FTS5 indexes (catalog.json remains canonical)
+skills/dingyi-edu-radar/.search-index/
+
 # macOS
 .DS_Store
 
