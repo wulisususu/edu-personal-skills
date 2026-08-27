@@ -20,3 +20,7 @@ jobs:
           python-version: "3.12"
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
+      - name: Verify Python syntax
+        run: python -m py_compile skills/dingyi-edu-radar/scripts/safe_publish.py
+      - name: Verify shell syntax
+        run: bash -n skills/dingyi-edu-radar/scripts/refresh.sh
