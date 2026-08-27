@@ -19,6 +19,12 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlparse
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from reference_paths import reference_filename
+
 
 DEFAULT_UA = "Mozilla/5.0 (compatible; edu-radar-refresh/2.0)"
 EXCLUDED_LINK_PARTS = (
@@ -281,6 +287,7 @@ def build_snapshot(
     refs.mkdir(parents=True, exist_ok=True)
     catalog: list[dict] = []
     seen_slugs: dict[str, str] = {}
+    seen_files: dict[str, str] = {}
 
     for index, url in enumerate(urls, start=1):
         status, page_html = _fetch(url, timeout=timeout)
@@ -296,8 +303,14 @@ def build_snapshot(
             raise RuntimeError(f"slug collision: {slug}: {previous} vs {url}")
         seen_slugs[slug] = url
 
+        filename = reference_filename(slug)
+        previous_file_slug = seen_files.get(filename.casefold())
+        if previous_file_slug and previous_file_slug != slug:
+            raise RuntimeError(f"portable reference filename collision: {filename}")
+        seen_files[filename.casefold()] = slug
+
         title, description, body = _parse_article(page_html, url)
-        (refs / f"{slug}.md").write_text(
+        (refs / filename).write_text(
             build_reference_markdown(
                 title=title,
                 description=description,
@@ -311,7 +324,7 @@ def build_snapshot(
                 "slug": slug,
                 "title": title,
                 "kw": _legacy_kw(title),
-                "file": f"references/{slug}.md",
+                "file": f"references/{filename}",
                 "source_url": url,
                 "source_kind": source_kind_for_url(url, benefit_urls, edu_urls),
                 "source_trust": "untrusted",
