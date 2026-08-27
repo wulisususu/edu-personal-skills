@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections import Counter
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse
 
@@ -159,6 +160,55 @@ def _validate_item(snapshot_root: Path, item: object, index: int, seen_slugs: se
     return rel
 
 
+def _validate_counter_mapping(report: dict, key: str, expected: Counter) -> None:
+    if key not in report:
+        return
+    value = report[key]
+    if not isinstance(value, dict):
+        raise SnapshotValidationError(f"verification_report {key} must be an object")
+    normalized: dict[str, int] = {}
+    for name, count in value.items():
+        if not isinstance(name, str) or not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise SnapshotValidationError(f"verification_report {key} contains invalid counter")
+        if count:
+            normalized[name] = count
+    expected_normalized = {name: count for name, count in expected.items() if count}
+    if normalized != expected_normalized:
+        raise SnapshotValidationError(f"verification_report {key} does not match catalog")
+
+
+def _validate_verification_report(report: dict, snapshot_id: str, catalog: list[dict]) -> None:
+    if report.get("schema_version") != 1:
+        raise SnapshotValidationError("verification_report schema_version must be 1")
+    if report.get("snapshot_id") != snapshot_id:
+        raise SnapshotValidationError("verification_report snapshot_id mismatch")
+
+    total = report.get("total")
+    if total is not None:
+        if not isinstance(total, int) or isinstance(total, bool) or total != len(catalog):
+            raise SnapshotValidationError("verification_report total mismatch")
+
+    compatibility_keys = ("verified", "candidate", "needs_review", "failed")
+    if any(key in report for key in compatibility_keys):
+        compat_total = 0
+        for key in compatibility_keys:
+            value = report.get(key, 0)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise SnapshotValidationError(f"verification_report {key} must be a non-negative integer")
+            compat_total += value
+        if compat_total != len(catalog):
+            raise SnapshotValidationError("verification_report compatibility status counts mismatch")
+
+    statuses = Counter(item["verification"]["status"] for item in catalog)
+    categories = Counter(item["category"] for item in catalog)
+    risk_levels = Counter(item["risk_level"] for item in catalog)
+    risk_flags = Counter(flag for item in catalog for flag in item["risk_flags"])
+    _validate_counter_mapping(report, "status_counts", statuses)
+    _validate_counter_mapping(report, "category_counts", categories)
+    _validate_counter_mapping(report, "risk_level_counts", risk_levels)
+    _validate_counter_mapping(report, "risk_flag_counts", risk_flags)
+
+
 def validate_snapshot(
     snapshot_root: Path,
     min_count: int,
@@ -178,6 +228,7 @@ def validate_snapshot(
 
     catalog = _load_json(snapshot_root / "catalog.json", list)
     manifest = _load_json(snapshot_root / "snapshot_manifest.json", dict)
+    verification_report = _load_json(snapshot_root / "verification_report.json", dict)
     staged_files = sorted(path for path in refs_dir.glob("*.md") if path.is_file() and not path.is_symlink())
     staged_count = len(staged_files)
 
@@ -216,6 +267,8 @@ def validate_snapshot(
         raise SnapshotValidationError("snapshot_manifest reference_count mismatch")
     if not isinstance(manifest.get("generated_at"), str) or not manifest.get("generated_at"):
         raise SnapshotValidationError("snapshot_manifest missing generated_at")
+
+    _validate_verification_report(verification_report, snapshot_id, catalog)
 
     return {
         "schema_version": 2,
