@@ -103,10 +103,34 @@ def _atomic_write_json(path: Path, payload: dict) -> None:
             tmp.unlink()
 
 
+def _prepare_snapshots_root(skill_dir: Path) -> Path:
+    """Return a real in-skill snapshot directory, never a symlink escape."""
+    root = skill_dir / SNAPSHOTS_DIR
+    # `exists()` is false for a dangling symlink, so test is_symlink separately.
+    if root.is_symlink():
+        raise SnapshotValidationError(f"snapshot storage must not be a symlink: {root}")
+    if root.exists():
+        if not root.is_dir():
+            raise SnapshotValidationError(f"snapshot storage is not a directory: {root}")
+    else:
+        root.mkdir(mode=0o700)
+
+    resolved_skill = skill_dir.resolve()
+    resolved_root = root.resolve()
+    try:
+        resolved_root.relative_to(resolved_skill)
+    except ValueError as exc:
+        raise SnapshotValidationError("snapshot storage escapes skill directory") from exc
+    return root
+
+
 def _install_snapshot(stage_dir: Path, destination: Path) -> None:
-    if destination.exists():
+    if destination.exists() or destination.is_symlink():
         raise RuntimeError(f"snapshot destination already exists: {destination}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    # Parent creation is intentionally not performed here. The caller must validate
+    # the snapshot storage root first, so a symlink cannot redirect the install.
+    if not destination.parent.is_dir() or destination.parent.is_symlink():
+        raise SnapshotValidationError("snapshot storage root changed or is unsafe")
     try:
         os.replace(stage_dir, destination)
     except OSError as exc:
@@ -127,7 +151,7 @@ def _garbage_collect_snapshots(skill_dir: Path, active_id: str, keep_snapshots: 
     if keep_snapshots < 1:
         return
     root = skill_dir / SNAPSHOTS_DIR
-    if not root.is_dir():
+    if root.is_symlink() or not root.is_dir():
         return
     candidates = [
         path
@@ -152,7 +176,7 @@ def publish_snapshot(
     if not SNAPSHOT_ID_RE.fullmatch(snapshot_id):
         raise SnapshotValidationError(f"unsafe snapshot_id: {snapshot_id!r}")
 
-    snapshots_root = skill_dir / SNAPSHOTS_DIR
+    snapshots_root = _prepare_snapshots_root(skill_dir)
     destination = snapshots_root / snapshot_id
     _install_snapshot(stage_dir, destination)
 
@@ -174,7 +198,7 @@ def publish_snapshot(
     except Exception:
         # The pointer is the commit point. If it did not switch, remove the newly
         # installed snapshot and preserve the previously active generation.
-        if destination.exists():
+        if destination.exists() and not destination.is_symlink():
             shutil.rmtree(destination)
         raise
 
