@@ -22,6 +22,9 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install parser dependencies
+        run: python -m pip install beautifulsoup4 lxml
+
       - name: Validate JSON inputs
         run: |
           python - <<'PY'
@@ -80,6 +83,7 @@ jobs:
 
           scripts = sorted(Path("skills/dingyi-edu-radar/scripts").glob("*.py"))
           assert any(path.name == "search.py" for path in scripts), "search.py missing"
+          assert any(path.name == "refresh.py" for path in scripts), "refresh.py missing"
           for path in scripts:
               py_compile.compile(str(path), doraise=True)
               print(f"compiled: {path}")
@@ -87,3 +91,47 @@ jobs:
 
       - name: Verify shell syntax
         run: bash -n skills/dingyi-edu-radar/scripts/refresh.sh
+
+  platform-smoke:
+    name: platform smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install parser dependencies
+        run: python -m pip install beautifulsoup4 lxml
+
+      - name: Verify SQLite FTS5 support
+        run: python -c "import sqlite3; c=sqlite3.connect(':memory:'); c.execute('CREATE VIRTUAL TABLE probe USING fts5(body)'); c.execute('INSERT INTO probe(body) VALUES (?)', ('ready',)); assert c.execute('SELECT count(*) FROM probe WHERE probe MATCH ?', ('ready',)).fetchone()[0] == 1; print('fts5: ok')"
+
+      - name: Verify portable Python refresh CLI
+        run: python skills/dingyi-edu-radar/scripts/refresh.py --help
+
+      - name: Run portable refresh tests
+        run: python -m unittest discover -s tests -p "test_portable_refresh.py" -v
+
+      - name: Run parser fixture tests
+        run: python -m unittest discover -s tests -p "test_parser_fixtures.py" -v
+
+      - name: Run third-party notice tests
+        run: python -m unittest discover -s tests -p "test_third_party_notices.py" -v
+
+      - name: Verify Bash wrapper on Linux/macOS
+        if: runner.os != 'Windows'
+        run: |
+          bash -n skills/dingyi-edu-radar/scripts/refresh.sh
+          bash skills/dingyi-edu-radar/scripts/refresh.sh --help
+
+      - name: Verify PowerShell wrapper on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File skills/dingyi-edu-radar/scripts/refresh.ps1 --help
