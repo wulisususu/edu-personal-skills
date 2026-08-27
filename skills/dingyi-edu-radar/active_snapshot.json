@@ -5,5 +5,5 @@
   "catalog": "catalog.json",
   "references": "references",
   "activated_at": "bootstrap",
-  "catalog_schema_version": 1
+  "catalog_schema_version": 2
 }
