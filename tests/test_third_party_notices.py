@@ -1,11 +1,16 @@
 import importlib.util
+import json
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_DIR = REPO_ROOT / "skills" / "dingyi-edu-radar"
-SCRAPER = SKILL_DIR / "scripts" / "scrape_snapshot.py"
+SCRIPTS = SKILL_DIR / "scripts"
+SCRAPER = SCRIPTS / "scrape_snapshot.py"
+SAFE_PUBLISH = SCRIPTS / "safe_publish.py"
 
 
 def load_scraper():
@@ -14,6 +19,18 @@ def load_scraper():
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
+
+
+def load_safe_publish():
+    sys.path.insert(0, str(SCRIPTS))
+    try:
+        spec = importlib.util.spec_from_file_location("safe_publish_notices", SAFE_PUBLISH)
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.path.pop(0)
 
 
 class ThirdPartyNoticeTests(unittest.TestCase):
@@ -55,6 +72,27 @@ class ThirdPartyNoticeTests(unittest.TestCase):
         self.assertIn("https://www.edumails.cn/synthetic.html", output)
         self.assertIn("BEGIN_UNTRUSTED_REFERENCE_DATA", output)
         self.assertIn("END_UNTRUSTED_REFERENCE_DATA", output)
+
+    def test_references_readme_is_not_counted_as_bootstrap_article(self):
+        safe_publish = load_safe_publish()
+        with tempfile.TemporaryDirectory() as td:
+            skill = Path(td) / "skill"
+            refs = skill / "references"
+            refs.mkdir(parents=True)
+            (refs / "README.md").write_text("notice\n", encoding="utf-8")
+            for name in ("a", "b"):
+                (refs / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
+            (skill / "catalog.json").write_text(
+                json.dumps(
+                    [
+                        {"slug": "a", "title": "a", "kw": "a", "file": "references/a.md"},
+                        {"slug": "b", "title": "b", "kw": "b", "file": "references/b.md"},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.assertEqual(2, safe_publish._count_root_bootstrap(skill))
 
 
 if __name__ == "__main__":
