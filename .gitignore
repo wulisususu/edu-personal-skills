@@ -1,6 +1,11 @@
 # 刷新日志（每次运行动态生成，不跟 skill 目录名绑定）
 refresh.log
 
+# edu-radar runtime snapshots / staging / atomic pointer temp files
+skills/dingyi-edu-radar/.snapshots/
+skills/dingyi-edu-radar/.refresh-stage.*/
+skills/dingyi-edu-radar/.active_snapshot.json.tmp.*
+
 # macOS
 .DS_Store
 
