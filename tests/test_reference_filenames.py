@@ -10,6 +10,7 @@ SKILL_DIR = REPO_ROOT / "skills" / "dingyi-edu-radar"
 SCRIPTS = SKILL_DIR / "scripts"
 PATHS_MODULE = SCRIPTS / "reference_paths.py"
 MIGRATOR = SCRIPTS / "migrate_reference_filenames.py"
+SCRAPER = SCRIPTS / "scrape_snapshot.py"
 
 
 def load_module(path: Path, name: str):
@@ -51,6 +52,40 @@ class ReferenceFilenameTests(unittest.TestCase):
             self.assertLessEqual(len(basename.encode("utf-8")), paths.MAX_FILENAME_BYTES, item["file"])
             self.assertEqual(basename, paths.reference_filename(item["slug"]), item["slug"])
             self.assertTrue((SKILL_DIR / item["file"]).is_file(), item["file"])
+
+    def test_future_scrapes_use_portable_filename_without_changing_logical_slug(self):
+        paths = load_module(PATHS_MODULE, "reference_paths_future")
+        scraper = load_module(SCRAPER, "scraper_portable_paths")
+        long_slug = "%e7%be%8e%e5%9b%bd" * 8
+        url = f"https://example.invalid/{long_slug}.html"
+
+        original_crawl = scraper._crawl_category
+        original_fetch = scraper._fetch
+        original_parse = scraper._parse_article
+        try:
+            scraper._crawl_category = lambda base_url, category, **kwargs: {url}
+            scraper._fetch = lambda target, **kwargs: (200, "x" * 600)
+            scraper._parse_article = lambda page_html, source_url: ("Synthetic", "", "Synthetic body")
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                count = scraper.build_snapshot(
+                    root,
+                    base_url="https://example.invalid",
+                    min_count=1,
+                    timeout=1,
+                    max_pages=1,
+                    sleep_seconds=0,
+                )
+                catalog = json.loads((root / "catalog.json").read_text(encoding="utf-8"))
+                self.assertEqual(1, count)
+                self.assertEqual(long_slug, catalog[0]["slug"])
+                expected = f"references/{paths.reference_filename(long_slug)}"
+                self.assertEqual(expected, catalog[0]["file"])
+                self.assertTrue((root / expected).is_file())
+        finally:
+            scraper._crawl_category = original_crawl
+            scraper._fetch = original_fetch
+            scraper._parse_article = original_parse
 
 
 class ReferenceFilenameMigrationTests(unittest.TestCase):
