@@ -79,5 +79,61 @@ class CatalogMetadataTests(unittest.TestCase):
             self.assertIn(key, item)
 
 
+class OfficialVerificationTests(unittest.TestCase):
+    def setUp(self):
+        self.meta = load_module("catalog_metadata.py", "catalog_metadata_verify")
+        self.verify = load_module("official_verify.py", "official_verify")
+        self.registry = self.meta.load_registry()
+
+    def item(self, title, source_kind="benefit"):
+        return self.meta.enrich_item(
+            {
+                "slug": "sample",
+                "title": title,
+                "kw": title,
+                "file": "references/sample.md",
+                "source_url": "https://www.edumails.cn/sample.html",
+                "source_kind": source_kind,
+            },
+            "",
+            self.registry,
+        )
+
+    def test_configured_vendor_domain_requires_successful_http(self):
+        item = self.item("GitHub Copilot 学生优惠")
+        ref = "来源内容 [GitHub Education](https://github.com/education/students) [other](https://example.com/x)"
+        result = self.verify.verify_item(item, ref, registry=self.registry, fetcher=lambda url: 200)
+        self.assertEqual("verified", result["status"])
+        self.assertEqual("github.com", result["official_domain"])
+        self.assertEqual("configured-domain", result["method"])
+        self.assertEqual(200, result["http_status"])
+
+    def test_unrelated_domain_is_never_promoted_to_verified(self):
+        item = self.item("Unknown Product 学生优惠")
+        ref = "[landing](https://example.com/student)"
+        result = self.verify.verify_item(item, ref, registry=self.registry, fetcher=lambda url: 200)
+        self.assertNotEqual("verified", result["status"])
+        self.assertIsNone(result["official_url"])
+
+    def test_network_failure_downgrades_without_raising(self):
+        item = self.item("Figma 教育版")
+        ref = "[Figma Education](https://figma.com/education/)"
+
+        def broken(_url):
+            raise OSError("network down")
+
+        result = self.verify.verify_item(item, ref, registry=self.registry, fetcher=broken)
+        self.assertIn(result["status"], {"failed", "needs_review"})
+        self.assertNotEqual("verified", result["status"])
+
+    def test_academic_domain_can_verify_edu_mail_article(self):
+        item = self.item("Example University EDU 邮箱申请", source_kind="edu_mail")
+        ref = "学校官网 [Apply](https://admissions.example.edu/apply)"
+        result = self.verify.verify_item(item, ref, registry=self.registry, fetcher=lambda url: 302)
+        self.assertEqual("verified", result["status"])
+        self.assertEqual("academic-domain", result["method"])
+        self.assertEqual("admissions.example.edu", result["official_domain"])
+
+
 if __name__ == "__main__":
     unittest.main()
