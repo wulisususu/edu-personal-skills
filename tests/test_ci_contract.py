@@ -17,12 +17,22 @@ class PermanentCIContractTests(unittest.TestCase):
             '"3.11"',
             '"3.12"',
             "python -m unittest discover -s tests -v",
+            "beautifulsoup4",
+            "lxml",
             "fts5",
             "sqlite3",
             "json.load",
             "py_compile",
             "bash -n skills/dingyi-edu-radar/scripts/refresh.sh",
             "search.py",
+            "refresh.py",
+            "refresh.ps1",
+            "ubuntu-latest",
+            "macos-latest",
+            "windows-latest",
+            "test_parser_fixtures.py",
+            "test_portable_refresh.py",
+            "test_third_party_notices.py",
         ):
             self.assertIn(required, text)
 
