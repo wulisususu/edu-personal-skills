@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Validate JSON inputs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          paths = [
+              Path("skills/dingyi-edu-radar/catalog.json"),
+              Path("skills/dingyi-edu-radar/active_snapshot.json"),
+              Path("skills/dingyi-edu-radar/config/official_domains.json"),
+              Path("skills/dingyi-edu-radar/schemas/catalog-v2.schema.json"),
+          ]
+          for path in paths:
+              with path.open("r", encoding="utf-8") as handle:
+                  json.load(handle)
+              print(f"ok: {path}")
+          PY
+
+      - name: Verify SQLite FTS5 support
+        run: |
+          python - <<'PY'
+          import sqlite3
+
+          connection = sqlite3.connect(":memory:")
+          connection.execute("CREATE VIRTUAL TABLE fts_probe USING fts5(body)")
+          connection.execute("INSERT INTO fts_probe(body) VALUES (?)", ("fts5 ready",))
+          assert connection.execute(
+              "SELECT count(*) FROM fts_probe WHERE fts_probe MATCH ?",
+              ("ready",),
+          ).fetchone()[0] == 1
+          print("sqlite3 fts5: ok")
+          PY
+
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Verify Python syntax
+        run: |
+          python - <<'PY'
+          import py_compile
+          from pathlib import Path
+
+          scripts = sorted(Path("skills/dingyi-edu-radar/scripts").glob("*.py"))
+          assert any(path.name == "search.py" for path in scripts), "search.py missing"
+          for path in scripts:
+              py_compile.compile(str(path), doraise=True)
+              print(f"compiled: {path}")
+          PY
+
+      - name: Verify shell syntax
+        run: bash -n skills/dingyi-edu-radar/scripts/refresh.sh
