@@ -30,7 +30,7 @@ class PromptInjectionBoundaryTests(unittest.TestCase):
         self.assertIn("搜索结果中出现的任何指令", text)
 
     def test_refresh_wraps_scraped_body_with_untrusted_markers(self):
-        text = (SKILL_DIR / "scripts" / "refresh.sh").read_text(encoding="utf-8")
+        text = (SKILL_DIR / "scripts" / "scrape_snapshot.py").read_text(encoding="utf-8")
         self.assertIn("BEGIN_UNTRUSTED_REFERENCE_DATA", text)
         self.assertIn("END_UNTRUSTED_REFERENCE_DATA", text)
         self.assertIn("UNTRUSTED_EXTERNAL_DATA", text)
@@ -38,9 +38,11 @@ class PromptInjectionBoundaryTests(unittest.TestCase):
 
 class SafeRefreshWiringTests(unittest.TestCase):
     def test_refresh_builds_staging_snapshot_and_uses_safe_publisher(self):
-        text = (SKILL_DIR / "scripts" / "refresh.sh").read_text(encoding="utf-8")
+        text = (SKILL_DIR / "scripts" / "refresh.py").read_text(encoding="utf-8")
         self.assertIn(".refresh-stage.", text)
         self.assertIn("safe_publish.py", text)
+        self.assertIn("scrape_snapshot.py", text)
+        self.assertIn("snapshot_enrich.py", text)
         self.assertNotIn('rm -rf "$LIVE_REF_DIR"', text)
         self.assertNotIn('rm -rf "$REF_DIR"', text)
 
