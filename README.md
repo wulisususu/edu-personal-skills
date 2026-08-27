@@ -99,6 +99,8 @@ SQLite 索引不会写入 `.snapshots/`，也不会提交到 Git；切换活动�
 ```text
 edu-personal-skills/
 ├── README.md
+├── LICENSE
+├── THIRD_PARTY_NOTICES.md
 ├── .github/workflows/ci.yml
 ├── tests/
 └── skills/
@@ -113,13 +115,16 @@ edu-personal-skills/
         │   └── catalog-v2.schema.json
         ├── scripts/
         │   ├── search.py
-        │   ├── refresh.sh
+        │   ├── refresh.py      # Linux/macOS/Windows 共同编排核心
+        │   ├── refresh.sh      # Linux/macOS 薄封装
+        │   ├── refresh.ps1     # Windows PowerShell 薄封装
         │   ├── scrape_snapshot.py
         │   ├── snapshot_enrich.py
         │   ├── snapshot_validate.py
         │   ├── safe_publish.py
         │   └── official_verify.py
         └── references/
+            └── README.md       # 第三方内容版权边界
 ```
 
 运行时还可能生成：
@@ -145,10 +150,35 @@ Catalog v2 额外提供：
 
 只有满足受控官方域名规则并在线验证成功的 URL 才能标记为 `verified`。
 
-## 安全刷新
+## Linux / macOS / Windows 通用安全刷新
+
+刷新业务逻辑只有一份：`scripts/refresh.py`。Linux/macOS 的 Bash 与 Windows PowerShell 只是薄启动器，因此三个平台共享相同的 staging、validation、official verification、shrink guard 和 atomic pointer 语义。
+
+先安装抓取依赖：
+
+```bash
+python -m pip install beautifulsoup4 lxml
+```
+
+### 直接使用 Python（所有平台）
+
+```bash
+python skills/dingyi-edu-radar/scripts/refresh.py
+python skills/dingyi-edu-radar/scripts/refresh.py --full
+```
+
+### Linux / macOS
 
 ```bash
 bash skills/dingyi-edu-radar/scripts/refresh.sh
+bash skills/dingyi-edu-radar/scripts/refresh.sh --full
+```
+
+### Windows PowerShell
+
+```powershell
+powershell -ExecutionPolicy Bypass -File skills/dingyi-edu-radar/scripts/refresh.ps1
+powershell -ExecutionPolicy Bypass -File skills/dingyi-edu-radar/scripts/refresh.ps1 --full
 ```
 
 刷新链路：
@@ -163,24 +193,25 @@ scrape → staging
        → atomic active_snapshot.json switch
 ```
 
-任何抓取、解析、验证或发布失败都不会切换活动快照。`--full` 保留兼容：
+任何抓取、解析、验证或发布失败都不会切换活动快照。`--full` 仅保留兼容语义；当前刷新本身已经始终构建完整不可变快照。
 
-```bash
-bash skills/dingyi-edu-radar/scripts/refresh.sh --full
-```
+可继续使用现有 `EDU_RADAR_*` 环境变量调整阈值与验证策略，例如 `EDU_RADAR_VERIFY_OFFICIAL=0`、`EDU_RADAR_MIN_ARTICLE_COUNT=50`、`EDU_RADAR_ALLOW_SHRINK=1`。布尔变量严格只接受 `0` 或 `1`。
 
-抓取部分需要 Python、BeautifulSoup 和 lxml；搜索功能本身只依赖 Python 标准库中的 `sqlite3`，并要求本机 SQLite 支持 FTS5。
+搜索功能只依赖 Python 标准库中的 `sqlite3`，并要求本机 SQLite 支持 FTS5。
 
 ## CI
 
 GitHub Actions 在 push 与 pull request 上执行：
 
-- Python 3.11 / 3.12 测试矩阵；
-- 全量 unittest 回归；
-- SQLite FTS5 能力检查；
+- Linux 上 Python 3.11 / 3.12 全量 unittest 回归；
+- Linux / macOS / Windows Python 3.12 跨平台 smoke matrix；
+- parser synthetic fixtures（不访问源站网络）；
+- BeautifulSoup + lxml parser 依赖安装与真实解析测试；
+- SQLite FTS5 能力检查与 249 条 bootstrap 搜索 smoke test；
 - JSON 配置/Schema/catalog 基础解析；
 - 所有 Python 脚本 `py_compile`；
-- `refresh.sh` Bash 语法检查。
+- Linux/macOS Bash wrapper 语法检查；
+- Windows PowerShell wrapper 启动检查。
 
 ## 覆盖范围
 
@@ -194,6 +225,10 @@ GitHub Actions 在 push 与 pull request 上执行：
 
 本项目仅用于查询合法教育优惠、学校官方申请入口和正规学生认证流程。不提供身份冒用、伪造学生资格、买卖来源不明 EDU 邮箱、批量刷号或规避官方认证的方法。第三方资料中如果存在此类内容，只会作为风险数据被标记，不应转化为操作步骤。
 
-## License
+## License 与第三方内容
 
-MIT。原始项目作者信息保留于仓库历史与 LICENSE。
+仓库原创 **source code**、测试、Schema 与原创项目文档按根目录 `LICENSE` 使用 MIT License。
+
+从外部网站 **scraped** 的第三方正文（主要位于 `skills/dingyi-edu-radar/references/` 和运行时 snapshot 的 `references/`）**is not licensed under this repository's MIT License**。第三方内容的权利仍属于原始作者/发布者/其他适用权利人；本仓库的 MIT 授权不替代原来源的版权或使用条款。
+
+详细范围、来源与权利声明见 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)。
