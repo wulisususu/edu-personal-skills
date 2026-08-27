@@ -1,4 +1,6 @@
 import importlib.util
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -133,6 +135,109 @@ class OfficialVerificationTests(unittest.TestCase):
         self.assertEqual("verified", result["status"])
         self.assertEqual("academic-domain", result["method"])
         self.assertEqual("admissions.example.edu", result["official_domain"])
+
+
+class SnapshotValidationTests(unittest.TestCase):
+    def setUp(self):
+        self.validator = load_module("snapshot_validate.py", "snapshot_validate")
+
+    def verification(self, **overrides):
+        value = {
+            "status": "needs_review",
+            "official_url": None,
+            "official_domain": None,
+            "candidate_url": None,
+            "candidate_domain": None,
+            "verified_at": None,
+            "http_status": None,
+            "method": "none",
+        }
+        value.update(overrides)
+        return value
+
+    def item(self, slug="a", **overrides):
+        value = {
+            "slug": slug,
+            "title": f"Title {slug}",
+            "kw": f"Title {slug}",
+            "file": f"references/{slug}.md",
+            "source_url": f"https://www.edumails.cn/{slug}.html",
+            "source_kind": "benefit",
+            "category": "other",
+            "aliases": [f"Title {slug}"],
+            "risk_flags": [],
+            "risk_level": "low",
+            "verification": self.verification(),
+            "source_trust": "untrusted",
+        }
+        value.update(overrides)
+        return value
+
+    def write_snapshot(self, root: Path, items, manifest_count=None):
+        refs = root / "references"
+        refs.mkdir(parents=True, exist_ok=True)
+        for item in items:
+            path = root / item["file"]
+            if path.parent == refs:
+                path.write_text("<!-- UNTRUSTED_EXTERNAL_DATA -->\n# item\n", encoding="utf-8")
+        (root / "catalog.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+        count = len(items) if manifest_count is None else manifest_count
+        (root / "snapshot_manifest.json").write_text(
+            json.dumps(
+                {
+                    "schema_version": 2,
+                    "snapshot_id": "test-snapshot",
+                    "catalog_count": count,
+                    "reference_count": count,
+                    "generated_at": "2026-08-27T00:00:00+00:00",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_valid_v2_snapshot_passes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_snapshot(root, [self.item("a"), self.item("b")])
+            summary = self.validator.validate_snapshot(root, min_count=1, existing_count=2, min_ratio=0.8, allow_shrink=False)
+            self.assertEqual(2, summary["reference_count"])
+            self.assertEqual("test-snapshot", summary["snapshot_id"])
+
+    def test_invalid_category_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_snapshot(root, [self.item(category="made-up-category")])
+            with self.assertRaises(self.validator.SnapshotValidationError):
+                self.validator.validate_snapshot(root, 1, 0, 0.8, False)
+
+    def test_path_traversal_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_snapshot(root, [self.item(file="references/../escape.md")])
+            with self.assertRaises(self.validator.SnapshotValidationError):
+                self.validator.validate_snapshot(root, 1, 0, 0.8, False)
+
+    def test_duplicate_slug_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_snapshot(root, [self.item("a"), self.item("a", file="references/b.md")])
+            with self.assertRaises(self.validator.SnapshotValidationError):
+                self.validator.validate_snapshot(root, 1, 0, 0.8, False)
+
+    def test_verified_item_requires_official_evidence(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bad = self.item(verification=self.verification(status="verified", method="configured-domain"))
+            self.write_snapshot(root, [bad])
+            with self.assertRaises(self.validator.SnapshotValidationError):
+                self.validator.validate_snapshot(root, 1, 0, 0.8, False)
+
+    def test_manifest_count_mismatch_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.write_snapshot(root, [self.item("a"), self.item("b")], manifest_count=1)
+            with self.assertRaises(self.validator.SnapshotValidationError):
+                self.validator.validate_snapshot(root, 1, 0, 0.8, False)
 
 
 if __name__ == "__main__":
