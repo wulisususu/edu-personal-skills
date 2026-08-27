@@ -58,6 +58,20 @@ jobs:
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
 
+      - name: Smoke test checked-in bootstrap search
+        run: |
+          python skills/dingyi-edu-radar/scripts/search.py "ChatGPT" --limit 5 > /tmp/edu-radar-search.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/edu-radar-search.json").read_text(encoding="utf-8"))
+          assert payload["snapshot_id"] == "bootstrap", payload
+          assert payload["count"] >= 1, payload
+          assert any("chatgpt" in (item["title"] + " " + " ".join(item["aliases"])).casefold() for item in payload["results"]), payload
+          print(f"bootstrap search: {payload['count']} result(s)")
+          PY
+
       - name: Verify Python syntax
         run: |
           python - <<'PY'
