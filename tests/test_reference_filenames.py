@@ -1,7 +1,5 @@
 import importlib.util
 import json
-import shutil
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,7 +60,9 @@ class ReferenceFilenameMigrationTests(unittest.TestCase):
             skill = Path(td) / "skill"
             refs = skill / "references"
             refs.mkdir(parents=True)
-            long_slug = "%e7%be%8e%e5%9b%bd" * 40
+            # Long enough to exceed the portable 120-byte policy while still being
+            # creatable on POSIX filesystems for this migration fixture.
+            long_slug = "%e7%be%8e%e5%9b%bd" * 8
             (refs / "README.md").write_text("notice\n", encoding="utf-8")
             (refs / "replit.md").write_text("# replit\n", encoding="utf-8")
             (refs / f"{long_slug}.md").write_text("# long\n", encoding="utf-8")
