@@ -1,10 +1,10 @@
-name: P0 safety tests
+name: Edu radar safety and catalog pipeline tests
 
 on:
   push:
     branches:
       - main
-      - fix/p0-safety-refresh
+      - feat/p1-catalog-pipeline
   pull_request:
 
 permissions:
@@ -21,6 +21,16 @@ jobs:
       - name: Run regression tests
         run: python -m unittest discover -s tests -v
       - name: Verify Python syntax
-        run: python -m py_compile skills/dingyi-edu-radar/scripts/safe_publish.py
+        run: |
+          for f in \
+            safe_publish.py \
+            catalog_metadata.py \
+            official_verify.py \
+            snapshot_validate.py \
+            snapshot_enrich.py \
+            scrape_snapshot.py \
+            migrate_catalog_v2.py; do
+            python -m py_compile "skills/dingyi-edu-radar/scripts/$f"
+          done
       - name: Verify shell syntax
         run: bash -n skills/dingyi-edu-radar/scripts/refresh.sh
