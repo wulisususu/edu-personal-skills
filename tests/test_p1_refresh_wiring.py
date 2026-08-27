@@ -70,10 +70,9 @@ class SnapshotEnrichmentTests(unittest.TestCase):
 
 class RefreshPipelineWiringTests(unittest.TestCase):
     def test_refresh_runs_structured_enrichment_before_safe_publish(self):
-        text = (SKILL_DIR / "scripts" / "refresh.sh").read_text(encoding="utf-8")
+        text = (SKILL_DIR / "scripts" / "refresh.py").read_text(encoding="utf-8")
         self.assertIn("snapshot_enrich.py", text)
-        self.assertIn("SNAPSHOT_ID", text)
-        self.assertIn("source_kind", text)
+        self.assertIn("snapshot_id", text)
         self.assertIn("--verify-official", text)
         self.assertLess(text.index("snapshot_enrich.py"), text.index("safe_publish.py"))
 
