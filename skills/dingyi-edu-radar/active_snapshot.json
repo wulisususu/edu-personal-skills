@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "snapshot_id": "bootstrap",
+  "snapshot_root": ".",
+  "catalog": "catalog.json",
+  "references": "references",
+  "activated_at": "bootstrap",
+  "catalog_schema_version": 2
+}

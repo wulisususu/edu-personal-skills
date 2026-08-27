@@ -1,151 +1,228 @@
 #!/usr/bin/env python3
-"""Validate and publish a refreshed edu-radar snapshot without risking live data."""
+"""Validate, install, and atomically activate an immutable edu-radar snapshot."""
 
 from __future__ import annotations
 
 import argparse
+import errno
 import json
-import math
 import os
+import re
 import shutil
 import sys
 import uuid
-from pathlib import Path
+from datetime import datetime, timezone
+from pathlib import Path, PurePosixPath
+
+from snapshot_validate import SnapshotValidationError, validate_snapshot
 
 
-class SnapshotValidationError(RuntimeError):
-    pass
+SNAPSHOT_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+ACTIVE_POINTER = "active_snapshot.json"
+SNAPSHOTS_DIR = ".snapshots"
+REFERENCE_NOTICE_NAMES = {"readme.md"}
 
 
-def _load_catalog(path: Path) -> list[dict]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as exc:
-        raise SnapshotValidationError(f"missing catalog: {path}") from exc
-    except json.JSONDecodeError as exc:
-        raise SnapshotValidationError(f"invalid catalog JSON: {path}: {exc}") from exc
-    if not isinstance(data, list):
-        raise SnapshotValidationError("catalog.json must contain a JSON array")
-    return data
+def _load_json(path: Path) -> object:
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _count_existing(skill_dir: Path) -> int:
+def _safe_relative_dir(value: object) -> PurePosixPath | None:
+    if not isinstance(value, str) or not value:
+        return None
+    path = PurePosixPath(value)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    return path
+
+
+def _count_reference_markdown(refs: Path) -> int:
+    if not refs.is_dir() or refs.is_symlink():
+        return 0
+    return len(
+        [
+            path
+            for path in refs.glob("*.md")
+            if path.is_file()
+            and not path.is_symlink()
+            and path.name.casefold() not in REFERENCE_NOTICE_NAMES
+        ]
+    )
+
+
+def _count_root_bootstrap(skill_dir: Path) -> int:
     refs = skill_dir / "references"
-    ref_count = len(list(refs.glob("*.md"))) if refs.exists() else 0
-    catalog_path = skill_dir / "catalog.json"
+    refs_count = _count_reference_markdown(refs)
     catalog_count = 0
-    if catalog_path.exists():
+    try:
+        catalog = _load_json(skill_dir / "catalog.json")
+        if isinstance(catalog, list):
+            catalog_count = len(catalog)
+    except (OSError, ValueError, json.JSONDecodeError):
+        pass
+    return max(refs_count, catalog_count)
+
+
+def _count_active_snapshot(skill_dir: Path) -> int:
+    pointer_path = skill_dir / ACTIVE_POINTER
+    if not pointer_path.is_file():
+        return _count_root_bootstrap(skill_dir)
+    try:
+        pointer = _load_json(pointer_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        # A malformed pointer must never weaken the shrink guard.
+        return _count_root_bootstrap(skill_dir)
+    if not isinstance(pointer, dict):
+        return _count_root_bootstrap(skill_dir)
+
+    root_rel = _safe_relative_dir(pointer.get("snapshot_root"))
+    refs_rel = _safe_relative_dir(pointer.get("references"))
+    if root_rel is None or refs_rel is None:
+        return _count_root_bootstrap(skill_dir)
+
+    snapshot_root = (skill_dir / Path(*root_rel.parts)).resolve()
+    refs = (snapshot_root / Path(*refs_rel.parts)).resolve()
+    try:
+        refs.relative_to(snapshot_root)
+        snapshot_root.relative_to(skill_dir.resolve())
+    except ValueError:
+        return _count_root_bootstrap(skill_dir)
+    if not refs.is_dir() or refs.is_symlink():
+        return _count_root_bootstrap(skill_dir)
+    return _count_reference_markdown(refs)
+
+
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    tmp = path.parent / f".{path.name}.tmp.{uuid.uuid4().hex}"
+    try:
+        with tmp.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        # Persist the directory entry when the platform supports directory fsync.
         try:
-            catalog_count = len(_load_catalog(catalog_path))
-        except SnapshotValidationError:
-            # A damaged catalog must not weaken the shrink guard. Existing files still count.
-            catalog_count = 0
-    return max(ref_count, catalog_count)
+            fd = os.open(path.parent, os.O_RDONLY)
+        except OSError:
+            fd = None
+        if fd is not None:
+            try:
+                os.fsync(fd)
+            except OSError:
+                pass
+            finally:
+                os.close(fd)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
-def validate_snapshot(
+def _prepare_snapshots_root(skill_dir: Path) -> Path:
+    """Return a real in-skill snapshot directory, never a symlink escape."""
+    root = skill_dir / SNAPSHOTS_DIR
+    # `exists()` is false for a dangling symlink, so test is_symlink separately.
+    if root.is_symlink():
+        raise SnapshotValidationError(f"snapshot storage must not be a symlink: {root}")
+    if root.exists():
+        if not root.is_dir():
+            raise SnapshotValidationError(f"snapshot storage is not a directory: {root}")
+    else:
+        root.mkdir(mode=0o700)
+
+    resolved_skill = skill_dir.resolve()
+    resolved_root = root.resolve()
+    try:
+        resolved_root.relative_to(resolved_skill)
+    except ValueError as exc:
+        raise SnapshotValidationError("snapshot storage escapes skill directory") from exc
+    return root
+
+
+def _install_snapshot(stage_dir: Path, destination: Path) -> None:
+    if destination.exists() or destination.is_symlink():
+        raise RuntimeError(f"snapshot destination already exists: {destination}")
+    # Parent creation is intentionally not performed here. The caller must validate
+    # the snapshot storage root first, so a symlink cannot redirect the install.
+    if not destination.parent.is_dir() or destination.parent.is_symlink():
+        raise SnapshotValidationError("snapshot storage root changed or is unsafe")
+    try:
+        os.replace(stage_dir, destination)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        # Cross-filesystem fallback: copy to a hidden sibling, then rename within the
+        # destination filesystem so the visible immutable snapshot appears atomically.
+        incoming = destination.parent / f".incoming-{destination.name}-{uuid.uuid4().hex}"
+        try:
+            shutil.copytree(stage_dir, incoming, symlinks=False)
+            os.replace(incoming, destination)
+        finally:
+            if incoming.exists():
+                shutil.rmtree(incoming)
+
+
+def _garbage_collect_snapshots(skill_dir: Path, active_id: str, keep_snapshots: int) -> None:
+    if keep_snapshots < 1:
+        return
+    root = skill_dir / SNAPSHOTS_DIR
+    if root.is_symlink() or not root.is_dir():
+        return
+    candidates = [
+        path
+        for path in root.iterdir()
+        if path.is_dir() and not path.is_symlink() and path.name != active_id
+    ]
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    # `keep_snapshots` includes the active snapshot, so keep N-1 historical snapshots.
+    keep_history = max(0, keep_snapshots - 1)
+    for stale in candidates[keep_history:]:
+        shutil.rmtree(stale)
+
+
+def publish_snapshot(
     skill_dir: Path,
     stage_dir: Path,
-    min_count: int,
-    min_ratio: float,
-    allow_shrink: bool,
-) -> tuple[int, int]:
-    refs = stage_dir / "references"
-    catalog_path = stage_dir / "catalog.json"
-    if not refs.is_dir():
-        raise SnapshotValidationError(f"missing staged references directory: {refs}")
+    summary: dict,
+    *,
+    keep_snapshots: int = 3,
+) -> dict:
+    snapshot_id = str(summary.get("snapshot_id", ""))
+    if not SNAPSHOT_ID_RE.fullmatch(snapshot_id):
+        raise SnapshotValidationError(f"unsafe snapshot_id: {snapshot_id!r}")
 
-    staged_files = sorted(refs.glob("*.md"))
-    staged_count = len(staged_files)
-    if staged_count == 0:
-        raise SnapshotValidationError("staged snapshot contains zero references")
-    if staged_count < min_count:
-        raise SnapshotValidationError(
-            f"staged snapshot too small: {staged_count} < minimum {min_count}"
-        )
+    snapshots_root = _prepare_snapshots_root(skill_dir)
+    destination = snapshots_root / snapshot_id
+    _install_snapshot(stage_dir, destination)
 
-    catalog = _load_catalog(catalog_path)
-    if len(catalog) != staged_count:
-        raise SnapshotValidationError(
-            f"catalog/reference count mismatch: catalog={len(catalog)} refs={staged_count}"
-        )
+    pointer = {
+        "schema_version": 1,
+        "snapshot_id": snapshot_id,
+        "snapshot_root": f"{SNAPSHOTS_DIR}/{snapshot_id}",
+        "catalog": "catalog.json",
+        "references": "references",
+        "manifest": "snapshot_manifest.json",
+        "verification_report": "verification_report.json",
+        "activated_at": datetime.now(timezone.utc).isoformat(),
+        "catalog_schema_version": int(summary.get("schema_version", 2)),
+    }
 
-    seen_files: set[str] = set()
-    for index, item in enumerate(catalog):
-        if not isinstance(item, dict):
-            raise SnapshotValidationError(f"catalog item {index} is not an object")
-        rel = item.get("file")
-        if not isinstance(rel, str) or not rel.startswith("references/"):
-            raise SnapshotValidationError(f"catalog item {index} has invalid file path: {rel!r}")
-        if rel in seen_files:
-            raise SnapshotValidationError(f"duplicate catalog file path: {rel}")
-        seen_files.add(rel)
-        target = stage_dir / rel
-        if not target.is_file():
-            raise SnapshotValidationError(f"catalog points to missing staged file: {rel}")
-
-    existing_count = _count_existing(skill_dir)
-    if existing_count and not allow_shrink:
-        required = max(min_count, math.ceil(existing_count * min_ratio))
-        if staged_count < required:
-            raise SnapshotValidationError(
-                "unexpected snapshot shrink: "
-                f"existing={existing_count}, staged={staged_count}, required>={required}; "
-                "live data left untouched"
-            )
-
-    return existing_count, staged_count
-
-
-def _remove_path(path: Path) -> None:
-    if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
-    elif path.exists() or path.is_symlink():
-        path.unlink()
-
-
-def publish_snapshot(skill_dir: Path, stage_dir: Path) -> None:
-    live_refs = skill_dir / "references"
-    live_catalog = skill_dir / "catalog.json"
-    staged_refs = stage_dir / "references"
-    staged_catalog = stage_dir / "catalog.json"
-
-    backup_root = skill_dir / f".refresh-backup-{uuid.uuid4().hex}"
-    backup_root.mkdir(parents=False, exist_ok=False)
-    backup_refs = backup_root / "references"
-    backup_catalog = backup_root / "catalog.json"
-
-    refs_backed_up = False
-    catalog_backed_up = False
-    refs_installed = False
-    catalog_installed = False
+    pointer_path = skill_dir / ACTIVE_POINTER
+    try:
+        _atomic_write_json(pointer_path, pointer)
+    except Exception:
+        # The pointer is the commit point. If it did not switch, remove the newly
+        # installed snapshot and preserve the previously active generation.
+        if destination.exists() and not destination.is_symlink():
+            shutil.rmtree(destination)
+        raise
 
     try:
-        if live_refs.exists():
-            os.replace(live_refs, backup_refs)
-            refs_backed_up = True
-        os.replace(staged_refs, live_refs)
-        refs_installed = True
-
-        if live_catalog.exists():
-            os.replace(live_catalog, backup_catalog)
-            catalog_backed_up = True
-        os.replace(staged_catalog, live_catalog)
-        catalog_installed = True
-    except Exception:
-        # Best-effort rollback. Never delete backups until both live paths are installed.
-        if catalog_installed:
-            _remove_path(live_catalog)
-        if catalog_backed_up and backup_catalog.exists():
-            os.replace(backup_catalog, live_catalog)
-
-        if refs_installed:
-            _remove_path(live_refs)
-        if refs_backed_up and backup_refs.exists():
-            os.replace(backup_refs, live_refs)
-        raise
-    else:
-        shutil.rmtree(backup_root)
+        _garbage_collect_snapshots(skill_dir, snapshot_id, keep_snapshots)
+    except Exception as exc:
+        # GC is post-commit maintenance and must never invalidate a successful switch.
+        print(f"WARNING: snapshot GC failed after activation: {exc}", file=sys.stderr)
+    return pointer
 
 
 def main() -> int:
@@ -155,25 +232,40 @@ def main() -> int:
     parser.add_argument("--min-count", type=int, default=1)
     parser.add_argument("--min-ratio", type=float, default=0.8)
     parser.add_argument("--allow-shrink", action="store_true")
+    parser.add_argument("--keep-snapshots", type=int, default=3)
     args = parser.parse_args()
 
     if args.min_count < 1:
         parser.error("--min-count must be >= 1")
     if not 0 < args.min_ratio <= 1:
         parser.error("--min-ratio must be in (0, 1]")
+    if args.keep_snapshots < 1:
+        parser.error("--keep-snapshots must be >= 1")
 
     skill_dir = args.skill_dir.resolve()
     stage_dir = args.stage_dir.resolve()
+    if not skill_dir.is_dir():
+        print(f"ERROR: skill directory does not exist: {skill_dir}", file=sys.stderr)
+        return 2
+    if not stage_dir.is_dir():
+        print(f"ERROR: stage directory does not exist: {stage_dir}", file=sys.stderr)
+        return 2
 
+    existing_count = _count_active_snapshot(skill_dir)
     try:
-        existing_count, staged_count = validate_snapshot(
-            skill_dir,
+        summary = validate_snapshot(
             stage_dir,
             args.min_count,
+            existing_count,
             args.min_ratio,
             args.allow_shrink,
         )
-        publish_snapshot(skill_dir, stage_dir)
+        pointer = publish_snapshot(
+            skill_dir,
+            stage_dir,
+            summary,
+            keep_snapshots=args.keep_snapshots,
+        )
     except SnapshotValidationError as exc:
         print(f"ERROR: refresh snapshot rejected: {exc}", file=sys.stderr)
         return 2
@@ -182,8 +274,9 @@ def main() -> int:
         return 3
 
     print(
-        f"safe publish complete: existing={existing_count}, staged={staged_count}, "
-        f"live={staged_count}"
+        "safe publish complete: "
+        f"existing={existing_count}, staged={summary['reference_count']}, "
+        f"active={pointer['snapshot_id']}"
     )
     return 0
 

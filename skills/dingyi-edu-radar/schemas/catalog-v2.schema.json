@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/wulisususu/edu-personal-skills/catalog-v2.schema.json",
+  "title": "edu-radar catalog v2 item",
+  "type": "object",
+  "required": ["slug","title","kw","file","source_url","source_kind","category","aliases","risk_flags","risk_level","verification","source_trust"],
+  "properties": {
+    "slug": {"type":"string","minLength":1},
+    "title": {"type":"string","minLength":1},
+    "kw": {"type":"string"},
+    "file": {"type":"string","pattern":"^references/[^/]+\\.md$"},
+    "source_url": {"type":"string","pattern":"^https://"},
+    "source_kind": {"enum":["benefit","edu_mail"]},
+    "category": {"enum":["ai","developer-tools","design","productivity","research","cloud","media","shopping","education-benefit","edu-mail","other"]},
+    "aliases": {"type":"array","items":{"type":"string","minLength":1},"uniqueItems":true},
+    "risk_flags": {"type":"array","uniqueItems":true,"items":{"enum":["identity_substitution","sensitive_identifier","account_purchase_or_sale","verification_bypass","bulk_registration","prompt_injection","credential_exposure"]}},
+    "risk_level": {"enum":["low","medium","high"]},
+    "source_trust": {"const":"untrusted"},
+    "verification": {
+      "type":"object",
+      "required":["status","official_url","official_domain","candidate_url","candidate_domain","verified_at","http_status","method"],
+      "properties": {
+        "status":{"enum":["verified","candidate","needs_review","failed"]},
+        "official_url":{"type":["string","null"]},
+        "official_domain":{"type":["string","null"]},
+        "candidate_url":{"type":["string","null"]},
+        "candidate_domain":{"type":["string","null"]},
+        "verified_at":{"type":["string","null"]},
+        "http_status":{"type":["integer","null"]},
+        "method":{"enum":["configured-domain","academic-domain","none"]}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

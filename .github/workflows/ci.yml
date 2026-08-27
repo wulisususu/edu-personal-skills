@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install parser dependencies
+        run: python -m pip install beautifulsoup4 lxml
+
+      - name: Validate JSON inputs
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          paths = [
+              Path("skills/dingyi-edu-radar/catalog.json"),
+              Path("skills/dingyi-edu-radar/active_snapshot.json"),
+              Path("skills/dingyi-edu-radar/config/official_domains.json"),
+              Path("skills/dingyi-edu-radar/schemas/catalog-v2.schema.json"),
+          ]
+          for path in paths:
+              with path.open("r", encoding="utf-8") as handle:
+                  json.load(handle)
+              print(f"ok: {path}")
+          PY
+
+      - name: Verify SQLite FTS5 support
+        run: |
+          python - <<'PY'
+          import sqlite3
+
+          connection = sqlite3.connect(":memory:")
+          connection.execute("CREATE VIRTUAL TABLE fts_probe USING fts5(body)")
+          connection.execute("INSERT INTO fts_probe(body) VALUES (?)", ("fts5 ready",))
+          assert connection.execute(
+              "SELECT count(*) FROM fts_probe WHERE fts_probe MATCH ?",
+              ("ready",),
+          ).fetchone()[0] == 1
+          print("sqlite3 fts5: ok")
+          PY
+
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Smoke test checked-in bootstrap search
+        run: |
+          python skills/dingyi-edu-radar/scripts/search.py "ChatGPT" --limit 5 > /tmp/edu-radar-search.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path("/tmp/edu-radar-search.json").read_text(encoding="utf-8"))
+          assert payload["snapshot_id"] == "bootstrap", payload
+          assert payload["count"] >= 1, payload
+          assert any("chatgpt" in (item["title"] + " " + " ".join(item["aliases"])).casefold() for item in payload["results"]), payload
+          print(f"bootstrap search: {payload['count']} result(s)")
+          PY
+
+      - name: Verify Python syntax
+        run: |
+          python - <<'PY'
+          import py_compile
+          from pathlib import Path
+
+          scripts = sorted(Path("skills/dingyi-edu-radar/scripts").glob("*.py"))
+          assert any(path.name == "search.py" for path in scripts), "search.py missing"
+          assert any(path.name == "refresh.py" for path in scripts), "refresh.py missing"
+          for path in scripts:
+              py_compile.compile(str(path), doraise=True)
+              print(f"compiled: {path}")
+          PY
+
+      - name: Verify shell syntax
+        run: bash -n skills/dingyi-edu-radar/scripts/refresh.sh
+
+  platform-smoke:
+    name: platform smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install parser dependencies
+        run: python -m pip install beautifulsoup4 lxml
+
+      - name: Verify SQLite FTS5 support
+        run: >-
+          python -c "import sqlite3; c=sqlite3.connect(':memory:'); c.execute('CREATE VIRTUAL TABLE probe USING fts5(body)'); c.execute('INSERT INTO probe(body) VALUES (?)', ('ready',)); assert c.execute('SELECT count(*) FROM probe WHERE probe MATCH ?', ('ready',)).fetchone()[0] == 1; print('fts5 ok')"
+
+      - name: Verify portable Python refresh CLI
+        run: python skills/dingyi-edu-radar/scripts/refresh.py --help
+
+      - name: Run portable refresh tests
+        run: python -m unittest discover -s tests -p "test_portable_refresh.py" -v
+
+      - name: Run parser fixture tests
+        run: python -m unittest discover -s tests -p "test_parser_fixtures.py" -v
+
+      - name: Run third-party notice tests
+        run: python -m unittest discover -s tests -p "test_third_party_notices.py" -v
+
+      - name: Verify Bash wrapper on Linux/macOS
+        if: ${{ runner.os != 'Windows' }}
+        run: |
+          bash -n skills/dingyi-edu-radar/scripts/refresh.sh
+          bash skills/dingyi-edu-radar/scripts/refresh.sh --help
+
+      - name: Verify PowerShell wrapper on Windows
+        if: ${{ runner.os == 'Windows' }}
+        shell: pwsh
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File skills/dingyi-edu-radar/scripts/refresh.ps1 --help
