@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "entities": [
+    {"key":"chatgpt","aliases":["ChatGPT","OpenAI"],"domains":["openai.com","chatgpt.com"],"category":"ai"},
+    {"key":"gemini","aliases":["Gemini","Google AI","Google"],"domains":["google.com","googleapis.com"],"category":"ai"},
+    {"key":"perplexity","aliases":["Perplexity"],"domains":["perplexity.ai"],"category":"ai"},
+    {"key":"github","aliases":["GitHub Copilot","GitHub","Copilot"],"domains":["github.com","education.github.com"],"category":"developer-tools"},
+    {"key":"jetbrains","aliases":["JetBrains"],"domains":["jetbrains.com"],"category":"developer-tools"},
+    {"key":"replit","aliases":["Replit"],"domains":["replit.com"],"category":"developer-tools"},
+    {"key":"figma","aliases":["Figma"],"domains":["figma.com"],"category":"design"},
+    {"key":"adobe","aliases":["Adobe","Creative Cloud"],"domains":["adobe.com"],"category":"design"},
+    {"key":"canva","aliases":["Canva","可画"],"domains":["canva.com"],"category":"design"},
+    {"key":"notion","aliases":["Notion"],"domains":["notion.so","notion.com"],"category":"productivity"},
+    {"key":"microsoft","aliases":["Microsoft 365","Office 365","Microsoft","Azure"],"domains":["microsoft.com","office.com","azure.com"],"category":"productivity"},
+    {"key":"matlab","aliases":["MATLAB","MathWorks"],"domains":["mathworks.com"],"category":"research"},
+    {"key":"autodesk","aliases":["Autodesk"],"domains":["autodesk.com"],"category":"design"},
+    {"key":"aws","aliases":["AWS","Amazon Web Services"],"domains":["aws.amazon.com"],"category":"cloud"},
+    {"key":"spotify","aliases":["Spotify"],"domains":["spotify.com"],"category":"media"}
+  ],
+  "blocked_domains": [
+    "edumails.cn",
+    "sheerid.com",
+    "myunidays.com",
+    "studentbeans.com",
+    "bit.ly",
+    "t.co",
+    "facebook.com",
+    "x.com",
+    "twitter.com",
+    "youtube.com",
+    "youtu.be"
+  ]
+}
