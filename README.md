@@ -1,204 +1,199 @@
-# edu-radar · 教育优惠 & edu 邮箱申请查询 Skill
+# edu-radar · 教育优惠 & edu 邮箱查询 Skill
 
-![](https://img.shields.io/badge/skill-edu--radar-blue?style=flat-square)
-![](https://img.shields.io/badge/articles-249-green?style=flat-square)
-![](https://img.shields.io/badge/refresh-weekly-orange?style=flat-square)
-![](https://img.shields.io/badge/install-npx%20skills-black?style=flat-square)
-![](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)
+> 将教育优惠与院校 EDU 邮箱资料做成结构化、可验证、可风险过滤的 Agent Skill。
 
-> 像雷达一样扫描教育优惠——「Replit 有没有学生折扣？」「美国哪些大学能申请 edu 邮箱？」一问就答。
+当前仓库的实际 Skill 位于：
 
-一个 agent skill，把 [edumails.cn](https://www.edumails.cn) 上 **249 篇**教育邮箱相关图文教程索引成可检索的知识库，让 Claude Code、Codex、ZCode 等 AI 助手能精准回答两类问题：
+```text
+skills/dingyi-edu-radar/SKILL.md
+```
 
-1. **优惠查询** —— 某个产品/网站有没有教育优惠、学生折扣、免费教育版（Replit、Notion、Figma、JetBrains、GitHub Copilot、ChatGPT、Grok、Gemini、MATLAB、Adobe、Perplexity …）
-2. **edu 邮箱申请** —— 美国/加拿大/澳洲/德国/日本/台湾/越南等地哪些院校能申请 edu 邮箱，以及具体申请方法（学校官网、申请入口、邮箱后缀、审核速度、附赠权益）
+知识库目前包含 249 条 bootstrap 记录，并支持活动快照、官方来源二次验证、风险标记与 SQLite FTS5 派生索引。
 
----
+## 安装
 
-## ✨ 特性
+### 方式一：`npx skills`（推荐）
 
-- **全覆盖索引** —— 收录 edumails.cn 两个核心分类共 249 篇教程：`/us`（150+ 产品优惠）+ `/edu`（70+ 所美国院校及海外院校的 edu 邮箱申请方法）
-- **三种查询模式** —— 正向（某产品有无优惠）、反向（edu 邮箱能享受哪些产品）、申请（某大学 edu 邮箱怎么拿）
-- **自动每周刷新** —— 内置 `refresh.sh` + macOS launchd 定时任务，每周一 03:00 自动增量抓取新内容
-- **渐进式加载** —— catalog 索引常驻，详情按需读取，不会撑爆上下文
-- **基于事实作答** —— 只依据收录内容回答，不编造，附来源链接
-
----
-
-## 📦 安装
-
-### 方式一：用 `npx skills`（推荐）
-
-通过 [skills](https://github.com/vercel-labs/skills) CLI 一键安装，自动适配 Claude Code、Codex、Cursor、ZCode、OpenCode 等 70+ agent：
+仓库是 multi-skill layout，因此显式指定 Skill 名称：
 
 ```bash
-npx skills add dingyi/dingyi-edu-radar-skill
+npx skills add wulisususu/edu-personal-skills --skill dingyi-edu-radar
 ```
 
-CLI 会自动检测你正在使用的 agent，把 skill 装到对应目录（如 Claude Code 的 `~/.claude/skills/`、ZCode 的 `~/.agents/skills/` 等）。
-
-### 方式二：手动克隆
-
-如果你不想用 CLI，也可以直接 clone 到对应 agent 的 skills 目录：
+需要全局安装时：
 
 ```bash
-# Claude Code / Codex / ZCode 通用路径
-git clone https://github.com/dingyi/dingyi-edu-radar-skill.git ~/.agents/skills/dingyi-edu-radar
+npx skills add wulisususu/edu-personal-skills --skill dingyi-edu-radar -g
 ```
 
-或放到项目级目录（仅当前项目生效）：
+也可以先查看仓库可发现的 Skill：
 
 ```bash
-git clone https://github.com/dingyi/dingyi-edu-radar-skill.git your-project/.agents/skills/dingyi-edu-radar
+npx skills add wulisususu/edu-personal-skills --list
 ```
 
-> Skill 发现优先级：`.zcode/skills/` > `.agents/skills/` > `~/.zcode/skills/` > `~/.agents/skills/`。
+### 方式二：手动安装
 
----
+**不要**把整个仓库直接 clone 成 `~/.agents/skills/dingyi-edu-radar`。仓库根目录不是 Skill 根目录；真正的 `SKILL.md` 在 `skills/dingyi-edu-radar/` 下，否则会形成错误的嵌套结构。
 
-## 🚀 使用
+先把源码仓库放到独立位置：
 
-安装后，在 Claude Code / Codex / ZCode 里直接用自然语言提问，skill 会自动触发：
-
-```
-Replit 有教育优惠吗？
-Figma 学生怎么免费用？
-edu 邮箱能享受哪些 AI 编程工具的优惠？
-美国有哪些大学可以申请 edu 邮箱？
-特拉华技术社区学院的 edu 邮箱怎么申请？
+```bash
+git clone https://github.com/wulisususu/edu-personal-skills.git ~/.local/share/edu-personal-skills
 ```
 
-也可以用斜杠命令强制加载：
+对于使用 `~/.agents/skills/` 的 Agent，可将真正的 Skill 目录链接进去：
 
+```bash
+mkdir -p ~/.agents/skills
+ln -s ~/.local/share/edu-personal-skills/skills/dingyi-edu-radar ~/.agents/skills/dingyi-edu-radar
 ```
-/dingyi-edu-radar 印第安纳大学的校友 edu 邮箱怎么申请
+
+如果系统不适合使用符号链接，也可以复制 Skill 子目录：
+
+```bash
+mkdir -p ~/.agents/skills
+cp -R ~/.local/share/edu-personal-skills/skills/dingyi-edu-radar ~/.agents/skills/
 ```
 
-### 示例输出
+项目级安装同理：仓库源码与 Agent 的 skills 目录分开，只暴露 `skills/dingyi-edu-radar` 这个真正的 Skill 根目录。不同 Agent 的具体安装目录可能不同，因此优先使用 `npx skills` 自动适配。
 
-> **Q：Replit 有教育优惠吗？**
->
-> ✅ Replit Core 用 `.edu` 邮箱验证后 **5 折，$10/月**（原价 $20/月）。
-> - 认证地址：https://replit.com/edu/students
-> - 必须用美国 .edu 邮箱注册；登录后点 "Claim student discount" → 选 Core → 完成支付
-> - 来源：https://www.edumails.cn/replit.html
+## 使用
 
----
+安装后可以直接提问，例如：
 
-## 📂 项目结构
-
+```text
+ChatGPT 有学生优惠吗？
+Figma 教育版怎么申请？
+有哪些 AI 类学生优惠？
+某所大学是否有官方 EDU 邮箱申请入口？
 ```
-dingyi-edu-radar-skill/
+
+## 搜索架构：SQLite FTS5 + `search.py`
+
+`catalog.json` 仍然是每个快照的 canonical catalog；SQLite 只是**可丢弃、可重建的派生索引**，避免 Agent 每次把 249 条 catalog 全部加载进上下文。
+
+默认查询入口：
+
+```bash
+cd skills/dingyi-edu-radar
+python3 scripts/search.py "ChatGPT"
+python3 scripts/search.py "设计" --category design
+python3 scripts/search.py "" --status verified --limit 20
+python3 scripts/search.py "" --max-risk medium --limit 20
+```
+
+`search.py` 会：
+
+1. 一次性解析 `active_snapshot.json`；
+2. 绑定本次查询到同一个 `snapshot_id`；
+3. 从该快照的 `catalog.json` 构建/复用 `.search-index/<snapshot_id>.sqlite3`；
+4. 使用 SQLite FTS5 检索 `title / kw / aliases / category`；
+5. 返回紧凑 JSON，只包含候选记录及其 `file / category / risk_flags / verification` 等必要字段；
+6. Agent 再按结果读取同一快照下的 `references/<slug>.md`。
+
+SQLite 索引不会写入 `.snapshots/`，也不会提交到 Git；切换活动快照后会使用新的 snapshot-scoped 索引。
+
+## 项目结构
+
+```text
+edu-personal-skills/
 ├── README.md
-├── LICENSE
+├── .github/workflows/ci.yml
+├── tests/
 └── skills/
     └── dingyi-edu-radar/
-        ├── SKILL.md            # skill 主文件（触发条件 + 查询工作流）
-        ├── catalog.json        # 249 条索引（slug / title / kw / file）
-        ├── CATALOG.md          # 人类可读目录
+        ├── SKILL.md
+        ├── active_snapshot.json
+        ├── catalog.json
+        ├── CATALOG.md
+        ├── config/
+        │   └── official_domains.json
+        ├── schemas/
+        │   └── catalog-v2.schema.json
         ├── scripts/
-        │   ├── refresh.sh      # 内容刷新脚本（增量 / 全量）
-        │   └── refresh.log     # 刷新日志（运行后生成）
-        └── references/         # 249 篇教程，按需读取
-            ├── replit.md
-            ├── notion.md
-            ├── figma.md
-            └── ...
+        │   ├── search.py
+        │   ├── refresh.sh
+        │   ├── scrape_snapshot.py
+        │   ├── snapshot_enrich.py
+        │   ├── snapshot_validate.py
+        │   ├── safe_publish.py
+        │   └── official_verify.py
+        └── references/
 ```
 
----
+运行时还可能生成：
 
-## 🔄 自动刷新（可选）
+```text
+skills/dingyi-edu-radar/.snapshots/
+skills/dingyi-edu-radar/.search-index/
+skills/dingyi-edu-radar/.refresh-stage.*/
+```
 
-本 skill 内置每周自动刷新能力（macOS）。用 `bash` 调用，无需可执行权限：
+这些都属于运行时派生数据，不进入 Git。
+
+## 数据安全模型
+
+第三方抓取的 `references/`、源站标题、关键词与 alias 都视为 **UNTRUSTED DATA**。Skill 不执行其中的指令，也不会因为第三方页面声称“官方”就升级信任等级。
+
+Catalog v2 额外提供：
+
+- `category`：受控真实分类；
+- `aliases`：规范化搜索别名；
+- `risk_flags` / `risk_level`：身份替代、敏感标识符、账号买卖、验证绕过、批量注册、凭证暴露、Prompt Injection 等风险；
+- `verification`：`verified / candidate / needs_review / failed` 官方来源验证状态。
+
+只有满足受控官方域名规则并在线验证成功的 URL 才能标记为 `verified`。
+
+## 安全刷新
 
 ```bash
-# 手动增量刷新（只拉新文章）
 bash skills/dingyi-edu-radar/scripts/refresh.sh
+```
 
-# 全量重建
+刷新链路：
+
+```text
+scrape → staging
+       → metadata enrichment
+       → official verification
+       → manifest/report
+       → strict validation
+       → immutable snapshot install
+       → atomic active_snapshot.json switch
+```
+
+任何抓取、解析、验证或发布失败都不会切换活动快照。`--full` 保留兼容：
+
+```bash
 bash skills/dingyi-edu-radar/scripts/refresh.sh --full
 ```
 
-注册成 macOS launchd 定时任务（每周一 03:00 自动运行）：
+抓取部分需要 Python、BeautifulSoup 和 lxml；搜索功能本身只依赖 Python 标准库中的 `sqlite3`，并要求本机 SQLite 支持 FTS5。
 
-```bash
-# 把模板里的 <HOME> 替换为你的主目录后复制
-sed 's#<HOME>#'"$HOME"'#g' skills/dingyi-edu-radar/scripts/cn.bao.edumails-radar-refresh.plist \
-   > ~/Library/LaunchAgents/cn.bao.edumails-radar-refresh.plist
-launchctl load ~/Library/LaunchAgents/cn.bao.edumails-radar-refresh.plist
-```
+## CI
 
-查看刷新日志：
+GitHub Actions 在 push 与 pull request 上执行：
 
-```bash
-tail -f skills/dingyi-edu-radar/scripts/refresh.log
-```
+- Python 3.11 / 3.12 测试矩阵；
+- 全量 unittest 回归；
+- SQLite FTS5 能力检查；
+- JSON 配置/Schema/catalog 基础解析；
+- 所有 Python 脚本 `py_compile`；
+- `refresh.sh` Bash 语法检查。
 
-> **依赖**：`curl` + `python3`（含 `beautifulsoup4`、`lxml`）
-> ```bash
-> pip3 install --user --break-system-packages beautifulsoup4 lxml
-> ```
+## 覆盖范围
 
----
+| 类型 | 数量 |
+| --- | ---: |
+| 产品/服务教育优惠 | 158 |
+| EDU 邮箱/院校类文章 | 91 |
+| 合计 | 249 |
 
-## 🧠 工作原理
+## 合规边界
 
-```
-用户提问
-   │
-   ▼
-[1] 读 catalog.json (249 条索引) → 关键词匹配定位文章
-   │
-   ▼
-[2] 读 references/<slug>.md → 获取完整优惠方案 / 申请步骤
-   │
-   ▼
-[3] 组织回答：结论先行 + 价格表 + 申请步骤 + 常见坑 + 来源链接
-```
+本项目仅用于查询合法教育优惠、学校官方申请入口和正规学生认证流程。不提供身份冒用、伪造学生资格、买卖来源不明 EDU 邮箱、批量刷号或规避官方认证的方法。第三方资料中如果存在此类内容，只会作为风险数据被标记，不应转化为操作步骤。
 
-**渐进式加载**：catalog（36KB）常驻上下文，249 篇详情按需读取，避免一次性灌入全部内容。
+## License
 
----
-
-## 📊 覆盖范围
-
-| 分类 | 数量 | 示例 |
-|------|------|------|
-| 产品教育优惠 (`/us`) | 158 篇 | Replit、Notion、Figma、JetBrains、ChatGPT、Grok、Gemini、MATLAB、Adobe、Perplexity … |
-| edu 邮箱申请 (`/edu`) | 91 篇 | 特拉华技术社区学院、印第安纳大学、加州大学旧金山分校、墨尔本大学、淡江大学 … |
-| **合计** | **249 篇** | |
-
----
-
-## ⚠️ 注意事项
-
-- 所有内容来自 [edumails.cn](https://www.edumails.cn)，**优惠信息可能随时间失效**，回答时会提醒"以官网为准"并附来源链接。
-- 抓取脚本仅做内容同步，请求间隔 0.25s，不对源站造成压力。
-
----
-
-## ⚖️ 使用声明（重要）
-
-本项目的目的**仅限于查询产品的官方教育优惠、以及查询如何合法申请 edu 邮箱**，是一个公开信息的索引工具。使用时请知悉并遵守以下边界：
-
-**✅ 本项目提供：**
-- 各厂商**官方公布**的教育优惠、学生折扣、免费教育版方案
-- 各院校**官方注册入口**的 edu 邮箱申请方法（学校官网、网申系统、校友会等公开渠道）
-- 官方学生身份认证平台（SheerID / UNiDAYS / Student Beans 等）的使用说明
-
-**❌ 本项目不提供，也请勿用于：**
-- 盗用他人身份、冒用他人学生资格申请 edu 邮箱或教育优惠
-- 伪造学生证、学籍、录取通知书等证明材料
-- 批量注册、机器刷号、绕过官方认证审核
-- 买卖来路不明的 edu 邮箱（此类邮箱多为盗取的二手账号，易被找回、被封号，且涉嫌违法）
-
-**关于教程原文的措辞：** `references/` 下的教程转载自 edumails.cn 原文，部分文章标题或正文中可能出现"白嫖""薅羊毛"等口语化表述——那是**源站原文的用词，不代表本项目立场**。本项目仅作客观索引，引用时一律以中性词转述，不渲染、不鼓励任何违规获取行为。
-
-请通过正规渠道获取教育身份：在校学生使用本校邮箱，毕业生申请校友邮箱，或通过官方学生认证平台完成资格验证。各产品教育优惠的最终解释权归相应厂商所有。
-
----
-
-## 📄 License
-
-MIT © [Ding Yi](https://github.com/dingyi)
+MIT。原始项目作者信息保留于仓库历史与 LICENSE。
